@@ -5,6 +5,7 @@
  * 
  * 1. 增加多id的购买，支持两种模式
  * 2. 增加定时购买能力
+ * 3. 判断是否需要加入购物车（不然可能会下两个单）
  * 
  */
 
@@ -185,8 +186,6 @@ async function send_js_api_request(api_config: JDApiConfig) {
 
 async function add_to_cart_request(product_id: string) {
 
-  // const url = `https://cart.jd.com/addToCart.html?rcd=1&pid=${product_id}&pc=1&eb=1&em=`
-
   const url = `https://cart.jd.com/gate.action?pid=${product_id}&pcount=1&ptype=1`
 
   const res = await fetch(url, {
@@ -198,7 +197,6 @@ async function add_to_cart_request(product_id: string) {
       "Accept-Encoding": "gzip, deflate, br",
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
       "Connection": "keep-alive",
-      Host: "cart.jd.com",
       Referer: "https://item.jd.com/",
       "Sec-Fetch-Dest": "document",
       "Sec-Fetch-Mode": "navigate",
