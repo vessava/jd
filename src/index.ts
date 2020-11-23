@@ -1,3 +1,13 @@
+
+/**
+ * 
+ * TODO:
+ * 
+ * 1. 增加多id的购买，支持两种模式
+ * 2. 增加定时购买能力
+ * 
+ */
+
 import fetch, { Response as NodeFetchResponse } from "node-fetch";
 import { getLogger } from "log4js";
 
@@ -6,18 +16,32 @@ import path from "path";
 
 import yaml from "js-yaml";
 
-const config_path = path.join(__dirname, "../config.yaml")
+const config_path = path.join(__dirname, "../config.yaml");
 
-const configs: any = yaml.safeLoad(fs.readFileSync(config_path).toString())
+interface Config {
+  COOKIE: string;
+  PAY_SHIP_REQUEST_BODY: string;
+  product_id: string;
+  user_key: string;
+  fast_polling_interval: number;
+  slow_polling_interval: number;
+  target_time: string;
+  rush_type: RushType;
+}
 
-const { COOKIE, PAY_SHIP_REQUEST_BODY, product_id, user_key } = configs;
+enum RushType {
+  Relay = "Relay",
+  OneOf = "OneOf"
+}
 
-// Log
+const configs = yaml.safeLoad(fs.readFileSync(config_path).toString()) as Config;
+
+const { COOKIE, PAY_SHIP_REQUEST_BODY, product_id, user_key, slow_polling_interval } = configs;
+
 var logger = getLogger();
 logger.level = "debug";
 
 async function main() {
-  //  清空购物车
   const uncheck_res = await uncheck_all();
 
   let is_added = false;
@@ -38,8 +62,8 @@ async function main() {
     }
 
     if (!is_added) {
-      logger.debug(`等待100ms后继续尝试添加产品${product_id}`);
-      await sleep(100);
+      logger.debug(`等待${slow_polling_interval}ms后继续尝试添加产品${product_id}`);
+      await sleep(slow_polling_interval);
     }
   }
 
