@@ -1,0 +1,14 @@
+
+# 所有请求都会带上的，这个是jd的cookie
+COOKIE:
+  "ejk2kc"
+
+# 这个是更改订单的配送方式的请求body，直接copy的，在不同配送方式时这个应该不一样
+PAY_SHIP_REQUEST_BODY:
+  "dsjkl"
+
+# 这个是要买的商品id
+product_id: "100015521004"
+
+# 这个是用户的key，固定值，不同的用户应该不同，但是同一个用户，所有请求都是一样的。主要在api里面使用
+user_key: "9fdjk-fejwklw211-251"
