@@ -89,21 +89,20 @@ export async function wait_for_start_time(config: WaitConfig): Promise<void> {
   date.setHours(config.hour);
 
   const now_date = new Date();
-  const time_out = (date.getTime() - now_date.getTime());
+  const time_out = date.getTime() - now_date.getTime() - ahead_time;
 
-  const log_msg = `目前时间：${now_date.toLocaleString()}，目标时间：${date.toLocaleString()}，将在${
-    time_out - ahead_time
-  }ms后开启轮训任务`;
+  if (time_out < 0) {
+    config.logger.debug("立刻开始轮训");
+    return Promise.resolve();
+  }
 
-  config.logger.debug(
-    `目前时间：${now_date.toLocaleString()}，目标时间：${date.toLocaleString()}，将在${
-      time_out - ahead_time
-    }ms后开启轮训任务`
-  );
+  const log_msg = `目前时间：${now_date.toLocaleString()}，目标时间：${date.toLocaleString()}，将在${time_out}ms后开启轮训任务`;
+
+  config.logger.debug(log_msg);
 
   return new Promise((resolve) => {
     setTimeout(function () {
       resolve();
-    }, time_out - ahead_time);
+    }, time_out);
   });
 }

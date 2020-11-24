@@ -38,7 +38,7 @@ enum RushType {
 
 const DEFAUL_SLOW_POLLING_INTERVAL = 100;
 
-const DEFAUL_FAST_POLLING_INTERVAL = 10;
+const DEFAUL_FAST_POLLING_INTERVAL = 50;
 
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
@@ -100,7 +100,13 @@ async function try_to_select_target_product(fast_polling_interval: number) {
     const cart_res = await select_in_cart_req(product_id);
     const body = JSON.parse(cart_res.parsed_body);
 
-    // TODO: 如果请求过快，这里可能出现 "request.send too frequent"
+    if (body.success === false) {
+      // 如果请求过快，这里可能出现 "request send too frequent"
+      logger.debug(body.message);
+      logger.debug("请求过于频繁，将停止程序！！！");
+      throw new Error(body.message);
+    }
+
     is_target_selected = is_target_add_to_order(body);
 
     if (is_target_selected) {
