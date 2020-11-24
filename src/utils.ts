@@ -1,8 +1,12 @@
-import { Logger } from "log4js";
+import { getLogger } from "log4js";
 import fetch, {
   Response as NodeFetchResponse,
   RequestInit as NodeFetchRequestInit,
 } from "node-fetch";
+import chalk from "chalk";
+
+var logger = getLogger();
+logger.level = "debug";
 
 /**
  * @export
@@ -92,13 +96,13 @@ export async function wait_for_start_time(config: WaitConfig): Promise<void> {
   const time_out = date.getTime() - now_date.getTime() - ahead_time;
 
   if (time_out < 0) {
-    config.logger.debug("立刻开始轮训");
+    config.logger.info("立刻开始轮训");
     return Promise.resolve();
   }
 
   const log_msg = `目前时间：${now_date.toLocaleString()}，目标时间：${date.toLocaleString()}，将在${time_out}ms后开启轮训任务`;
 
-  config.logger.debug(log_msg);
+  config.logger.info(log_msg);
 
   return new Promise((resolve) => {
     setTimeout(function () {
@@ -173,4 +177,18 @@ export async function send_jd_api_request(config: JDApiConfig) {
   };
 
   return send_jd_request(url, options);
+}
+
+export class Logger {
+  public info(msg: string) {
+    logger.info(chalk.blue(msg));
+  }
+
+  public success(msg: string) {
+    logger.info(chalk.green(msg));
+  }
+
+  public error(msg: string) {
+    logger.info(chalk.red(msg));
+  }
 }

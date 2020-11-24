@@ -1,5 +1,3 @@
-
-import { getLogger } from "log4js";
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
@@ -9,11 +7,13 @@ import {
   wait_for_start_time,
   JDApiConfig,
   send_jd_api_request,
+  Logger
 } from "./utils";
 import { is_cart_already_contain } from "./cart";
 
 const config_path = path.join(__dirname, "../config.yaml");
 
+const logger = new Logger();
 interface BuyConfig {
   COOKIE: string;
   PAY_SHIP_REQUEST_BODY: string;
@@ -46,9 +46,6 @@ const DEFAUL_FAST_POLLING_INTERVAL = 50;
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
 ) as BuyConfig;
-
-var logger = getLogger();
-logger.level = "debug";
 
 async function main() {
   execute(configs);
@@ -94,24 +91,37 @@ async function execute(configs: BuyConfig) {
     ctx
   );
 
-  const pay_ship_res = await save_pay_and_ship_new(PAY_SHIP_REQUEST_BODY, ctx);
+  logger.info(`产品${product_id}正在修改配送信息`);
+  // 请求一遍订单页面，下面注释的是修改配送方式页面，接口感觉比较慢。
+  // 需要做一次这个请求，不然最后下单时候会提示配送方式不对。
+  // const pay_ship_res = await save_pay_and_ship_new(PAY_SHIP_REQUEST_BODY, ctx);
+  await get_order(ctx);
+  logger.info(`产品${product_id}修改配送信息完成`);
 
-  logger.debug(`产品${product_id}正在下单`);
+  logger.info(`产品${product_id}正在下单`);
   const res = await submit_order(ctx);
 
   let parsed: any;
   try {
     parsed = JSON.parse((res as any).parsed_body);
-    logger.debug(parsed.message);
   } catch (e) {
     // 进入到这里应该是服务器不接受了
     const decoder = new TextDecoder("gbk");
     const gbk_decoded = decoder.decode((res as any).body_buffer);
 
-    logger.debug("服务器出错，也许是相关参数过期了！！请尝试更新一下cookie!!!");
+    logger.error("服务器出错，也许是相关参数过期了！！请尝试更新一下cookie!!!");
+
+    return;
   }
 
-  logger.debug(`产品${product_id}请到手机app订单处完成付款`);
+  // message为空的话意味着应该是成功了
+  if (!parsed.message) {
+    logger.success("恭喜🎉！！！成功了!!!");
+    logger.success(`产品${product_id}请到手机app订单处完成付款...`);
+  } else {
+    logger.error(parsed.message);
+    logger.info("请查看上一条内容，也许下单失败了～");
+  }
 }
 
 async function try_to_add_to_cart(
@@ -128,7 +138,7 @@ async function try_to_add_to_cart(
   // Check for the second time to ensure the product is truely added.
   const is_contain_ensure = await is_cart_already_contain(config, product_id);
 
-  if(!is_contain_ensure) {
+  if (!is_contain_ensure) {
     throw new Error("添加购物车出现问题，有可能是程序漏洞！！！");
   }
 }
@@ -141,7 +151,7 @@ async function try_to_select_target_product(
 ) {
   let is_target_selected = false;
   while (!is_target_selected) {
-    logger.debug(`正在将产品${product_id}加入购物车`);
+    logger.info(`正在将产品${product_id}加入购物车`);
 
     const cart_res = await select_in_cart_req(product_id, ctx);
     const body = JSON.parse(cart_res.parsed_body);
@@ -149,8 +159,8 @@ async function try_to_select_target_product(
     let too_frequent = false;
     if (body.success === false) {
       // 如果请求过快，这里可能出现 "request send too frequent"
-      // logger.debug(body.message);
-      logger.debug("请求过于频繁！！！");
+      // logger.info(body.message);
+      logger.error("请求过于频繁！！！");
       // throw new Error(body.message);
       too_frequent = true;
     }
@@ -158,16 +168,16 @@ async function try_to_select_target_product(
     is_target_selected = is_target_add_to_order(body);
 
     if (is_target_selected) {
-      logger.debug(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
+      logger.info(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
     } else {
-      logger.debug(`产品${product_id}加入购物车失败!`);
+      logger.error(`产品${product_id}加入购物车失败!`);
     }
 
     if (!is_target_selected) {
       const wait_time = too_frequent
         ? slow_polling_interval
         : fast_polling_interval;
-      logger.debug(`等待${wait_time}ms后继续尝试添加产品${product_id}`);
+      logger.info(`等待${wait_time}ms后继续尝试添加产品${product_id}`);
       await sleep(wait_time);
     }
   }
@@ -206,6 +216,36 @@ async function refresh_cart(cookie: string) {
   };
 
   return send_jd_request(url, options);
+}
+
+async function get_order(ctx: BuyContext) {
+  const url = "https://trade.jd.com/shopping/order/getOrderInfo.action";
+
+  const options = {
+    headers: {
+      cookie: ctx.cookie,
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+      Connection: "keep-alive",
+      pragma: "no-cache",
+      Referer: "https://cart.jd.com/",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-site",
+    },
+    method: "GET",
+  };
+
+  try {
+    const res = await send_jd_request(url, options);
+    return res;
+  } catch (e) {
+    logger.error(e);
+  }
 }
 
 async function add_to_cart_request(product_id: string, ctx: BuyContext) {
