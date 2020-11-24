@@ -8,13 +8,11 @@
  *
  */
 
-import fetch, { Response as NodeFetchResponse } from "node-fetch";
 import { getLogger } from "log4js";
-
 import fs from "fs";
 import path from "path";
-
 import yaml from "js-yaml";
+import { sleep, send_jd_request, wait_for_start_time } from "./utils";
 
 const config_path = path.join(__dirname, "../config.yaml");
 
@@ -23,9 +21,13 @@ interface Config {
   PAY_SHIP_REQUEST_BODY: string;
   product_id: string;
   user_key: string;
-  fast_polling_interval: number;
-  slow_polling_interval: number;
-  target_time: string;
+  fast_polling_interval?: number;
+  slow_polling_interval?: number;
+  target_time?: {
+    hour: number;
+    minutes?: number;
+    date?: number;
+  };
   rush_type: RushType;
 }
 
@@ -33,6 +35,10 @@ enum RushType {
   Relay = "Relay",
   OneOf = "OneOf",
 }
+
+const DEFAUL_SLOW_POLLING_INTERVAL = 100;
+
+const DEFAUL_FAST_POLLING_INTERVAL = 10;
 
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
@@ -44,38 +50,27 @@ const {
   product_id,
   user_key,
   slow_polling_interval,
+  fast_polling_interval,
+  target_time,
 } = configs;
 
 var logger = getLogger();
 logger.level = "debug";
 
 async function main() {
+  const safe_slow_polling_interval =
+    slow_polling_interval || DEFAUL_SLOW_POLLING_INTERVAL;
+  const safe_fast_polling_interval =
+    fast_polling_interval || DEFAUL_FAST_POLLING_INTERVAL;
   const uncheck_res = await uncheck_all();
-
-  let is_added = false;
 
   const add_to_cart = await add_to_cart_request(product_id);
 
-  while (!is_added) {
-    logger.debug(`正在将产品${product_id}加入购物车`);
-    //
-    const cart_res = await select_in_cart_req(product_id);
-    const body = JSON.parse(cart_res.parsed_body);
-    is_added = is_target_add_to_order(body);
-
-    if (is_added) {
-      logger.debug(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
-    } else {
-      logger.debug(`产品${product_id}加入购物车失败!`);
-    }
-
-    if (!is_added) {
-      logger.debug(
-        `等待${slow_polling_interval}ms后继续尝试添加产品${product_id}`
-      );
-      await sleep(slow_polling_interval);
-    }
+  if (target_time) {
+    await wait_for_start_time({ ...target_time, logger });
   }
+
+  await try_to_select_target_product(safe_fast_polling_interval);
 
   const pay_ship_res = await save_pay_and_ship_new();
 
@@ -87,15 +82,40 @@ async function main() {
     parsed = JSON.parse((res as any).parsed_body);
     logger.debug(parsed.message);
   } catch (e) {
-    
     // 进入到这里应该是服务器不接受了
-    const decoder = new TextDecoder('gbk');
+    const decoder = new TextDecoder("gbk");
     const gbk_decoded = decoder.decode((res as any).body_buffer);
 
     logger.debug("服务器出错，也许是相关参数过期了！！请尝试更新一下cookie!!!");
   }
 
   logger.debug(`产品${product_id}请到手机app订单处完成付款`);
+}
+
+async function try_to_select_target_product(fast_polling_interval: number) {
+  let is_target_selected = false;
+  while (!is_target_selected) {
+    logger.debug(`正在将产品${product_id}加入购物车`);
+
+    const cart_res = await select_in_cart_req(product_id);
+    const body = JSON.parse(cart_res.parsed_body);
+
+    // TODO: 如果请求过快，这里可能出现 "request.send too frequent"
+    is_target_selected = is_target_add_to_order(body);
+
+    if (is_target_selected) {
+      logger.debug(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
+    } else {
+      logger.debug(`产品${product_id}加入购物车失败!`);
+    }
+
+    if (!is_target_selected) {
+      logger.debug(
+        `等待${fast_polling_interval}ms后继续尝试添加产品${product_id}`
+      );
+      await sleep(fast_polling_interval);
+    }
+  }
 }
 
 function is_target_add_to_order(order_res: any) {
@@ -106,24 +126,12 @@ function is_target_add_to_order(order_res: any) {
   return resultData && resultData.Price > 0;
 }
 
-async function sleep(time: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(function () {
-      resolve();
-    }, time);
-  });
-}
-
 main();
-
-interface JDApiConfig {
-  body: string;
-}
 
 async function refresh_cart() {
   const url = "https://cart.jd.com/";
 
-  const res = await fetch(url, {
+  const options = {
     headers: {
       cookie: COOKIE,
       "user-agent":
@@ -140,74 +148,15 @@ async function refresh_cart() {
       "Sec-Fetch-Site": "same-site",
     },
     method: "GET",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
-}
-
-async function send_js_api_request(api_config: JDApiConfig) {
-  const url = "https://api.m.jd.com/api";
-
-  const res = await fetch(url, {
-    // body: api_config.body,
-    // credentials: "include",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json, text/plain, */*",
-      cookie: COOKIE,
-      origin: "https://trade.jd.com",
-      pragma: "no-cache",
-      referer: "https://trade.jd.com/shopping/order/getOrderInfo.action",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-site",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
-    },
-    method: "POST",
-  });
-
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
+  return send_jd_request(url, options);
 }
 
 async function add_to_cart_request(product_id: string) {
   const url = `https://cart.jd.com/gate.action?pid=${product_id}&pcount=1&ptype=1`;
 
-  const res = await fetch(url, {
+  const options = {
     headers: {
       cookie: COOKIE,
       "user-agent":
@@ -223,26 +172,9 @@ async function add_to_cart_request(product_id: string) {
       "Sec-Fetch-Site": "same-site",
     },
     method: "GET",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
+  send_jd_request(url, options);
 }
 
 /**
@@ -267,7 +199,7 @@ async function uncheck_all() {
     body: data,
   };
 
-  const res = await fetch(url, {
+  const options = {
     body: querystring(body),
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -283,26 +215,9 @@ async function uncheck_all() {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
     },
     method: "POST",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
+  return send_jd_request(url, options);
 }
 
 /**
@@ -312,10 +227,7 @@ async function uncheck_all() {
  * @param {string} [skuUuid]
  * @return {*}  {Promise<{ parsed_body: string; response: NodeFetchResponse }>}
  */
-async function select_in_cart_req(
-  id: string,
-  skuUuid?: string
-): Promise<{ parsed_body: string; response: NodeFetchResponse }> {
+async function select_in_cart_req(id: string, skuUuid?: string) {
   const url = "https://api.m.jd.com/api";
 
   const data = {
@@ -343,7 +255,7 @@ async function select_in_cart_req(
     body: data,
   };
 
-  const res = await fetch(url, {
+  const options = {
     body: querystring(body),
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -359,26 +271,9 @@ async function select_in_cart_req(
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
     },
     method: "POST",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
+  return send_jd_request(url, options);
 }
 
 function querystring(obj: any) {
@@ -409,7 +304,7 @@ function querystring(obj: any) {
 async function submit_order() {
   const url = "https://trade.jd.com/shopping/order/submitOrder.action?";
 
-  const res = await fetch(url, {
+  const options = {
     body:
       "overseaPurchaseCookies=&vendorRemarks=[]&submitOrderParam.sopNotPutInvoice=false&submitOrderParam.trackID=TestTrackId&submitOrderParam.ignorePriceChange=0&submitOrderParam.btSupport=0&submitOrderParam.eid=MDG5CG427ZU3OOGNXTUFFKEWLOPVR5Q4STCCZLYYZROQAAESGB7IWMRBGXRYDN6YHHWMY7NPIHS5TQ662YD7U4CNEA&submitOrderParam.fp=1209df5109a95a1bb2b83841e31fb7e0&submitOrderParam.jxj=1",
     headers: {
@@ -426,30 +321,9 @@ async function submit_order() {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
     },
     method: "POST",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    let response_buf = Buffer.alloc(0);
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-      response_buf = Buffer.concat([response_buf, d]);
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-        body_buffer: response_buf,
-      });
-    });
-  });
+  return send_jd_request(url, options);
 }
 
 /**
@@ -461,7 +335,7 @@ async function save_pay_and_ship_new() {
   const url =
     "https://trade.jd.com/shopping/dynamic/payAndShip/savePayAndShipNew.action";
 
-  const res = await fetch(url, {
+  const options = {
     body: PAY_SHIP_REQUEST_BODY,
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -477,24 +351,7 @@ async function save_pay_and_ship_new() {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
     },
     method: "POST",
-  });
+  };
 
-  return new Promise((resolve, reject) => {
-    if (!res.ok) {
-      reject(res);
-    }
-
-    let response_body = "";
-
-    res.body.on("data", function (d) {
-      response_body += d.toString();
-    });
-
-    res.body.on("end", function () {
-      resolve({
-        parsed_body: response_body,
-        response: res,
-      });
-    });
-  });
+  return send_jd_request(url, options);
 }
