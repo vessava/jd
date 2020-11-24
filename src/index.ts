@@ -1,12 +1,3 @@
-/**
- *
- * TODO:
- * 
- *  [ ]. 增加多id的购买，支持两种模式
- *  [-]. 增加定时购买能力
- *  [-]. 判断是否需要加入购物车（不然可能会下两个单）
- *
- */
 
 import { getLogger } from "log4js";
 import fs from "fs";
