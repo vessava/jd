@@ -106,3 +106,71 @@ export async function wait_for_start_time(config: WaitConfig): Promise<void> {
     }, time_out);
   });
 }
+
+export function querystring(obj: any) {
+  const str = Object.keys(obj)
+    .map((key) => {
+      const val = obj[key];
+
+      return `${key}=${get_qs_value(val)}`;
+    })
+    .join("&");
+
+  return str;
+
+  function get_qs_value(value: any) {
+    if (typeof value === "object") {
+      return encodeURIComponent(JSON.stringify(value));
+    } else {
+      return value;
+    }
+  }
+}
+
+export interface JDApiConfig {
+  user_key: string;
+  area?: string;
+  functionId: string;
+  cookie: string;
+  extend_data?: any;
+}
+
+export async function send_jd_api_request(config: JDApiConfig) {
+  const url = "https://api.m.jd.com/api";
+
+  const extend_data = config.extend_data || {};
+  const data = {
+    ...extend_data,
+    serInfo: {
+      area: config.area || "1_2800_2851_0",
+      "user-key": config.user_key,
+    },
+  };
+
+  const body = {
+    functionId: config.functionId,
+    appid: "JDC_mall_cart",
+    loginType: 3,
+    body: data,
+  };
+
+  const options = {
+    body: querystring(body),
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json, text/plain, */*",
+      cookie: config.cookie,
+      origin: "https://cart.jd.com",
+      referer: "https://cart.jd.com/",
+      pragma: "no-cache",
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-site",
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
+    },
+    method: "POST",
+  };
+
+  return send_jd_request(url, options);
+}

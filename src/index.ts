@@ -1,10 +1,10 @@
 /**
  *
  * TODO:
- *
- * 1. 增加多id的购买，支持两种模式
- * 2. 增加定时购买能力
- * 3. 判断是否需要加入购物车（不然可能会下两个单）
+ * 
+ *  [ ]. 增加多id的购买，支持两种模式
+ *  [-]. 增加定时购买能力
+ *  [-]. 判断是否需要加入购物车（不然可能会下两个单）
  *
  */
 
@@ -12,11 +12,18 @@ import { getLogger } from "log4js";
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
-import { sleep, send_jd_request, wait_for_start_time } from "./utils";
+import {
+  sleep,
+  send_jd_request,
+  wait_for_start_time,
+  JDApiConfig,
+  send_jd_api_request,
+} from "./utils";
+import { is_cart_already_contain } from "./cart";
 
 const config_path = path.join(__dirname, "../config.yaml");
 
-interface Config {
+interface BuyConfig {
   COOKIE: string;
   PAY_SHIP_REQUEST_BODY: string;
   product_id: string;
@@ -31,6 +38,11 @@ interface Config {
   rush_type: RushType;
 }
 
+interface BuyContext {
+  cookie: string;
+  user_key: string;
+}
+
 enum RushType {
   Relay = "Relay",
   OneOf = "OneOf",
@@ -42,40 +54,59 @@ const DEFAUL_FAST_POLLING_INTERVAL = 50;
 
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
-) as Config;
-
-const {
-  COOKIE,
-  PAY_SHIP_REQUEST_BODY,
-  product_id,
-  user_key,
-  slow_polling_interval,
-  fast_polling_interval,
-  target_time,
-} = configs;
+) as BuyConfig;
 
 var logger = getLogger();
 logger.level = "debug";
 
 async function main() {
+  execute(configs);
+}
+
+async function execute(configs: BuyConfig) {
+  const {
+    COOKIE,
+    PAY_SHIP_REQUEST_BODY,
+    product_id,
+    user_key,
+    slow_polling_interval,
+    fast_polling_interval,
+    target_time,
+  } = configs;
   const safe_slow_polling_interval =
     slow_polling_interval || DEFAUL_SLOW_POLLING_INTERVAL;
   const safe_fast_polling_interval =
     fast_polling_interval || DEFAUL_FAST_POLLING_INTERVAL;
-  const uncheck_res = await uncheck_all();
+  const ctx: BuyContext = { cookie: COOKIE, user_key };
 
-  const add_to_cart = await add_to_cart_request(product_id);
+  const uncheck_res = await uncheck_all(ctx);
+
+  // 如果手动保证添加购物车的话，这一步可以省略
+  await try_to_add_to_cart(
+    {
+      user_key: user_key,
+      functionId: "pcCart_jc_getCurrentCart",
+      cookie: COOKIE,
+    },
+    product_id,
+    ctx
+  );
 
   if (target_time) {
     await wait_for_start_time({ ...target_time, logger });
   }
 
-  await try_to_select_target_product(safe_fast_polling_interval);
+  await try_to_select_target_product(
+    safe_fast_polling_interval,
+    safe_slow_polling_interval,
+    product_id,
+    ctx
+  );
 
-  const pay_ship_res = await save_pay_and_ship_new();
+  const pay_ship_res = await save_pay_and_ship_new(PAY_SHIP_REQUEST_BODY, ctx);
 
   logger.debug(`产品${product_id}正在下单`);
-  const res = await submit_order();
+  const res = await submit_order(ctx);
 
   let parsed: any;
   try {
@@ -92,19 +123,45 @@ async function main() {
   logger.debug(`产品${product_id}请到手机app订单处完成付款`);
 }
 
-async function try_to_select_target_product(fast_polling_interval: number) {
+async function try_to_add_to_cart(
+  config: JDApiConfig,
+  product_id: string,
+  ctx: BuyContext
+) {
+  const is_contain = await is_cart_already_contain(config, product_id);
+
+  if (!is_contain) {
+    const add_to_cart = await add_to_cart_request(product_id, ctx);
+  }
+
+  // Check for the second time to ensure the product is truely added.
+  const is_contain_ensure = await is_cart_already_contain(config, product_id);
+
+  if(!is_contain_ensure) {
+    throw new Error("添加购物车出现问题，有可能是程序漏洞！！！");
+  }
+}
+
+async function try_to_select_target_product(
+  fast_polling_interval: number,
+  slow_polling_interval: number,
+  product_id: string,
+  ctx: BuyContext
+) {
   let is_target_selected = false;
   while (!is_target_selected) {
     logger.debug(`正在将产品${product_id}加入购物车`);
 
-    const cart_res = await select_in_cart_req(product_id);
+    const cart_res = await select_in_cart_req(product_id, ctx);
     const body = JSON.parse(cart_res.parsed_body);
 
+    let too_frequent = false;
     if (body.success === false) {
       // 如果请求过快，这里可能出现 "request send too frequent"
-      logger.debug(body.message);
-      logger.debug("请求过于频繁，将停止程序！！！");
-      throw new Error(body.message);
+      // logger.debug(body.message);
+      logger.debug("请求过于频繁！！！");
+      // throw new Error(body.message);
+      too_frequent = true;
     }
 
     is_target_selected = is_target_add_to_order(body);
@@ -116,10 +173,11 @@ async function try_to_select_target_product(fast_polling_interval: number) {
     }
 
     if (!is_target_selected) {
-      logger.debug(
-        `等待${fast_polling_interval}ms后继续尝试添加产品${product_id}`
-      );
-      await sleep(fast_polling_interval);
+      const wait_time = too_frequent
+        ? slow_polling_interval
+        : fast_polling_interval;
+      logger.debug(`等待${wait_time}ms后继续尝试添加产品${product_id}`);
+      await sleep(wait_time);
     }
   }
 }
@@ -134,12 +192,12 @@ function is_target_add_to_order(order_res: any) {
 
 main();
 
-async function refresh_cart() {
+async function refresh_cart(cookie: string) {
   const url = "https://cart.jd.com/";
 
   const options = {
     headers: {
-      cookie: COOKIE,
+      cookie,
       "user-agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
       Accept:
@@ -159,12 +217,12 @@ async function refresh_cart() {
   return send_jd_request(url, options);
 }
 
-async function add_to_cart_request(product_id: string) {
+async function add_to_cart_request(product_id: string, ctx: BuyContext) {
   const url = `https://cart.jd.com/gate.action?pid=${product_id}&pcount=1&ptype=1`;
 
   const options = {
     headers: {
-      cookie: COOKIE,
+      cookie: ctx.cookie,
       "user-agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
       Accept:
@@ -180,7 +238,7 @@ async function add_to_cart_request(product_id: string) {
     method: "GET",
   };
 
-  send_jd_request(url, options);
+  return send_jd_request(url, options);
 }
 
 /**
@@ -188,42 +246,11 @@ async function add_to_cart_request(product_id: string) {
  *
  * @return {*}
  */
-async function uncheck_all() {
-  const url = "https://api.m.jd.com/api";
-
-  const data = {
-    serInfo: {
-      area: "1_2800_2851_0",
-      "user-key": user_key,
-    },
-  };
-
-  const body = {
+async function uncheck_all(ctx: BuyContext) {
+  return send_jd_api_request({
+    ...ctx,
     functionId: "pcCart_jc_cartUnCheckAll",
-    appid: "JDC_mall_cart",
-    loginType: 3,
-    body: data,
-  };
-
-  const options = {
-    body: querystring(body),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json, text/plain, */*",
-      cookie: COOKIE,
-      origin: "https://cart.jd.com",
-      referer: "https://cart.jd.com/",
-      pragma: "no-cache",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-site",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
-    },
-    method: "POST",
-  };
-
-  return send_jd_request(url, options);
+  });
 }
 
 /**
@@ -233,15 +260,17 @@ async function uncheck_all() {
  * @param {string} [skuUuid]
  * @return {*}  {Promise<{ parsed_body: string; response: NodeFetchResponse }>}
  */
-async function select_in_cart_req(id: string, skuUuid?: string) {
-  const url = "https://api.m.jd.com/api";
-
-  const data = {
+async function select_in_cart_req(
+  product_id: string,
+  ctx: BuyContext,
+  skuUuid?: string
+) {
+  const extend = {
     operations: [
       {
         TheSkus: [
           {
-            Id: id,
+            Id: product_id,
             num: 1,
             skuUuid: skuUuid || "10180236205873752893575950336",
             useUuid: false,
@@ -249,57 +278,14 @@ async function select_in_cart_req(id: string, skuUuid?: string) {
         ],
       },
     ],
-    serInfo: {
-      area: "5_274_0_0",
-      "user-key": user_key,
-    },
   };
 
-  const body = {
+  return send_jd_api_request({
+    ...ctx,
+    area: "5_274_0_0",
     functionId: "pcCart_jc_cartCheckSingle",
-    appid: "JDC_mall_cart",
-    body: data,
-  };
-
-  const options = {
-    body: querystring(body),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json, text/plain, */*",
-      cookie: COOKIE,
-      origin: "https://cart.jd.com",
-      pragma: "no-cache",
-      referer: "https://cart.jd.com/",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-site",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
-    },
-    method: "POST",
-  };
-
-  return send_jd_request(url, options);
-}
-
-function querystring(obj: any) {
-  const str = Object.keys(obj)
-    .map((key) => {
-      const val = obj[key];
-
-      return `${key}=${get_qs_value(val)}`;
-    })
-    .join("&");
-
-  return str;
-
-  function get_qs_value(value: any) {
-    if (typeof value === "object") {
-      return encodeURIComponent(JSON.stringify(value));
-    } else {
-      return value;
-    }
-  }
+    extend_data: extend,
+  });
 }
 
 /**
@@ -307,7 +293,7 @@ function querystring(obj: any) {
  *
  * @return {*}
  */
-async function submit_order() {
+async function submit_order(ctx: BuyContext) {
   const url = "https://trade.jd.com/shopping/order/submitOrder.action?";
 
   const options = {
@@ -316,7 +302,7 @@ async function submit_order() {
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       accept: "application/json, text/plain, */*",
-      cookie: COOKIE,
+      cookie: ctx.cookie,
       origin: "https://trade.jd.com",
       pragma: "no-cache",
       referer: "https://trade.jd.com/shopping/order/getOrderInfo.action",
@@ -337,16 +323,19 @@ async function submit_order() {
  *
  * @return {*}
  */
-async function save_pay_and_ship_new() {
+async function save_pay_and_ship_new(
+  pay_ship_request_body: string,
+  ctx: BuyContext
+) {
   const url =
     "https://trade.jd.com/shopping/dynamic/payAndShip/savePayAndShipNew.action";
 
   const options = {
-    body: PAY_SHIP_REQUEST_BODY,
+    body: pay_ship_request_body,
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       accept: "application/json, text/plain, */*",
-      cookie: COOKIE,
+      cookie: ctx.cookie,
       origin: "https://cart.jd.com",
       pragma: "no-cache",
       referer: "https://cart.jd.com/",
