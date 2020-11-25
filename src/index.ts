@@ -7,7 +7,6 @@ import {
   send_jd_request,
   wait_for_start_time,
   JDApiConfig,
-  send_jd_api_request,
   send_new_jd_api_request,
   Logger,
 } from "./utils";
@@ -45,8 +44,8 @@ enum RushType {
   OneOf = "OneOf",
 }
 
-const DEFAULT_SLOW_POLLING_INTERVAL = 100;
-const DEFAULT_FAST_POLLING_INTERVAL = 50;
+const DEFAULT_SLOW_POLLING_INTERVAL = 1000;
+const DEFAULT_FAST_POLLING_INTERVAL = 400;
 const DEFAULT_ORDER_INTERVAL = 100;
 
 const configs = yaml.safeLoad(
@@ -345,9 +344,16 @@ async function try_to_select_target_product(
       ctx,
       product_relative_info
     );
-    const body = JSON.parse(cart_res.parsed_body);
 
     let too_frequent = false;
+    let body;
+    try {
+       body = JSON.parse(cart_res.parsed_body);
+    } catch(e) {
+      logger.error("请求太频繁了，接口返回了html")
+      too_frequent = true;
+    }
+
 
     const { can_go_order, fail_reason: reason } = is_target_add_to_order(
       body,
@@ -384,12 +390,22 @@ enum AddCartFailReason {
 }
 
 function is_target_add_to_order(order_res: any, price_limit?: number) {
+
+  if(!order_res) {
+    return {
+      can_go_order: false,
+      fail_reason: AddCartFailReason.Default,
+    }
+  }
+
   const resultData = order_res.sortedWebCartResult;
   const real_price_lim = price_limit || Number.POSITIVE_INFINITY;
 
+  const can_go_order = !(resultData.freshTotalPrice === resultData.notFreshTotalPrice)
+
   // If the cart price is not 0 means the target is added in.
   return {
-    can_go_order: resultData.modifyResult.modifyProductId ? true : false,
+    can_go_order,
     fail_reason: AddCartFailReason.Default,
   };
 }

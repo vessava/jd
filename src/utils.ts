@@ -70,7 +70,7 @@ interface WaitConfig {
   logger: Logger;
 }
 
-const DEFAULT_AHEAD_TIME = 800;
+const DEFAULT_AHEAD_TIME = 900;
 
 export async function wait_for_start_time(config: WaitConfig): Promise<void> {
   const date = new Date();
@@ -178,7 +178,6 @@ export function send_new_jd_api_request(config: NewJDApiConfig) {
       "sec-fetch-dest": "empty",
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-origin",
-      Host: "cart.jd.com",
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.66 Safari/537.36 Edg/87.0.664.41",
     },
