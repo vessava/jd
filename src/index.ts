@@ -75,7 +75,7 @@ async function execute(configs: BuyConfig) {
     fast_polling_interval: safe_fast_polling_interval,
     slow_polling_interval: safe_slow_polling_interval,
   };
-  
+
   const product_ids = Array.isArray(original_prod_ids) ? original_prod_ids : [original_prod_ids];
 
   // 如果手动保证添加购物车的话，这一步可以省略
@@ -86,7 +86,8 @@ async function execute(configs: BuyConfig) {
         functionId: "pcCart_jc_getCurrentCart",
         cookie: COOKIE,
       },
-      product_ids
+      product_ids,
+      ctx
     );
   } catch (e) {
     logger.error(
@@ -150,6 +151,7 @@ async function try_to_order(ctx: BuyContext, product_id: string) {
 async function try_to_add_to_cart(
   config: JDApiConfig,
   product_ids: string[],
+  ctx: BuyContext
 ) {
   const all_ids = await get_all_cart_ids(config);
 
@@ -162,6 +164,7 @@ async function try_to_add_to_cart(
 
     if (!is_contain) {
       // Check for the second time to ensure the product is truely added.
+      add_to_cart_request(product_id, ctx)
     }
     i++;
   }
