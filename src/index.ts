@@ -106,7 +106,7 @@ async function execute(configs: BuyConfig) {
 
   const infos = await get_select_product_relative_info(ctx, product_ids);
 
-  // await uncheck_all(ctx);
+  await uncheck_all(ctx);
 
   if (target_time) {
     await wait_for_start_time({ ...target_time, logger });
@@ -127,7 +127,11 @@ async function execute(configs: BuyConfig) {
   }
 }
 
-async function try_to_order(ctx: BuyContext, product_id: string, product_relative_info: SelectProductInfo) {
+async function try_to_order(
+  ctx: BuyContext,
+  product_id: string,
+  product_relative_info: SelectProductInfo
+) {
   await try_to_select_target_product(
     ctx.fast_polling_interval,
     ctx.slow_polling_interval,
@@ -417,7 +421,11 @@ async function try_to_select_target_product(
   while (!can_go_to_next_step) {
     logger.info(`正在将产品${product_id}加入购物车`);
 
-    const cart_res = await select_in_cart_req(product_id, ctx, product_relative_info);
+    const cart_res = await select_in_cart_req(
+      product_id,
+      ctx,
+      product_relative_info
+    );
     const body = JSON.parse(cart_res.parsed_body);
 
     let too_frequent = false;
@@ -529,9 +537,14 @@ async function add_to_cart_request(product_id: string, ctx: BuyContext) {
  * @return {*}
  */
 async function uncheck_all(ctx: BuyContext) {
-  return send_jd_api_request({
-    ...ctx,
-    functionId: "pcCart_jc_cartUnCheckAll",
+  return send_new_jd_api_request({
+    action_path: "cancelAllItem.action",
+    form_data: {
+      t: 0,
+      random: Math.random(),
+      locationId: "1-2800-2851-0",
+    },
+    cookie: ctx.cookie
   });
 }
 
