@@ -126,9 +126,67 @@ export function querystring(obj: any) {
     if (typeof value === "object") {
       return encodeURIComponent(JSON.stringify(value));
     } else {
+
+      if(typeof value === "number" && value > 1e20) {
+        return toFixed(value);
+      }
       return value;
     }
   }
+
+  function toFixed(x: any) {
+    if (Math.abs(x) < 1.0) {
+      var e = parseInt(x.toString().split('e-')[1]);
+      if (e) {
+          x *= Math.pow(10,e-1);
+          x = '0.' + (new Array(e)).join('0') + x.toString().substring(2);
+      }
+    } else {
+      var e = parseInt(x.toString().split('+')[1]);
+      if (e > 20) {
+          e -= 20;
+          x /= Math.pow(10,e);
+          x += (new Array(e+1)).join('0');
+      }
+    }
+    return x;
+  }
+}
+
+interface NewJDApiConfig {
+  action_path: string;
+  form_data: any;
+  cookie: string
+}
+
+export function send_new_jd_api_request(config: NewJDApiConfig) {
+
+  const api = "https://cart.jd.com/" + config.action_path + "?rd" + Math.random();
+
+  const body = config.form_data;
+
+  const options = {
+    body: querystring(body),
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json, text/javascript, */*; q=0.01",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+      cookie: config.cookie,
+      origin: "https://cart.jd.com",
+      referer: "https://cart.jd.com/cart.action",
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-origin",
+      Host: "cart.jd.com",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.66 Safari/537.36 Edg/87.0.664.41",
+    },
+    method: "POST",
+  };
+
+  return send_jd_request(api, options);
+
 }
 
 export interface JDApiConfig {
