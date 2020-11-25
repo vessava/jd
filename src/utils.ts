@@ -70,7 +70,7 @@ interface WaitConfig {
   logger: Logger;
 }
 
-const DEFAULT_AHEAD_TIME = 500;
+const DEFAULT_AHEAD_TIME = 800;
 
 export async function wait_for_start_time(config: WaitConfig): Promise<void> {
   const date = new Date();

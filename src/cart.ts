@@ -14,8 +14,8 @@ export async function get_all_cart_ids(config: JDApiConfig) {
   const vendors = res.resultData.cartInfo.vendors;
   const all_ids = extract_all_product_ids(vendors);
 
-  all_ids.map((id) => id.toString());
-  return all_ids;
+  const all_ids_string = all_ids.map((id) => id.toString());
+  return all_ids_string;
 
   function extract_all_product_ids(vendors: any[]) {
     const arr: string[] = [];

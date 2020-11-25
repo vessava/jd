@@ -76,7 +76,9 @@ async function execute(configs: BuyConfig) {
     slow_polling_interval: safe_slow_polling_interval,
   };
 
-  const product_ids = Array.isArray(original_prod_ids) ? original_prod_ids : [original_prod_ids];
+  const product_ids = Array.isArray(original_prod_ids)
+    ? original_prod_ids
+    : [original_prod_ids];
 
   // 如果手动保证添加购物车的话，这一步可以省略
   try {
@@ -90,11 +92,11 @@ async function execute(configs: BuyConfig) {
       ctx
     );
   } catch (e) {
-    logger.error(
-      "加入购物车时请求出现问题，可能cookie过期了，尝试更新cookie.."
-    );
-    return;
+    logger.error(e.toString());
+    logger.info("继续尝试抢购成功的商品");
   }
+
+  await uncheck_all(ctx);
 
   if (target_time) {
     await wait_for_start_time({ ...target_time, logger });
@@ -105,7 +107,12 @@ async function execute(configs: BuyConfig) {
   let i = 0;
   while (i < length) {
     const id = product_ids[i];
-    await try_to_order(ctx, id);
+    try {
+      await try_to_order(ctx, id);
+    } catch(e) {
+      logger.error("Catching error in function 'try_to_order'.")
+      logger.error(e)
+    }
     i++;
   }
 }
@@ -164,7 +171,7 @@ async function try_to_add_to_cart(
 
     if (!is_contain) {
       // Check for the second time to ensure the product is truely added.
-      add_to_cart_request(product_id, ctx)
+      await add_to_cart_request(product_id, ctx);
     }
     i++;
   }
