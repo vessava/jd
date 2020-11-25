@@ -7,9 +7,9 @@ import {
   wait_for_start_time,
   JDApiConfig,
   send_jd_api_request,
-  Logger
+  Logger,
 } from "./utils";
-import { is_cart_already_contain } from "./cart";
+import { get_all_cart_ids } from "./cart";
 
 const config_path = path.join(__dirname, "../config.yaml");
 
@@ -17,7 +17,7 @@ const logger = new Logger();
 interface BuyConfig {
   COOKIE: string;
   PAY_SHIP_REQUEST_BODY: string;
-  product_id: string;
+  product_id: string[] | string;
   user_key: string;
   fast_polling_interval?: number;
   slow_polling_interval?: number;
@@ -32,6 +32,8 @@ interface BuyConfig {
 interface BuyContext {
   cookie: string;
   user_key: string;
+  fast_polling_interval: number;
+  slow_polling_interval: number;
 }
 
 enum RushType {
@@ -39,9 +41,9 @@ enum RushType {
   OneOf = "OneOf",
 }
 
-const DEFAUL_SLOW_POLLING_INTERVAL = 100;
-
-const DEFAUL_FAST_POLLING_INTERVAL = 50;
+const DEFAULT_SLOW_POLLING_INTERVAL = 100;
+const DEFAULT_FAST_POLLING_INTERVAL = 50;
+const DEFAULT_ORDER_INTERVAL = 100;
 
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
@@ -54,39 +56,63 @@ async function main() {
 async function execute(configs: BuyConfig) {
   const {
     COOKIE,
-    PAY_SHIP_REQUEST_BODY,
-    product_id,
+    product_id: original_prod_ids,
     user_key,
     slow_polling_interval,
     fast_polling_interval,
     target_time,
   } = configs;
-  const safe_slow_polling_interval =
-    slow_polling_interval || DEFAUL_SLOW_POLLING_INTERVAL;
-  const safe_fast_polling_interval =
-    fast_polling_interval || DEFAUL_FAST_POLLING_INTERVAL;
-  const ctx: BuyContext = { cookie: COOKIE, user_key };
 
-  const uncheck_res = await uncheck_all(ctx);
+  const safe_slow_polling_interval =
+    slow_polling_interval || DEFAULT_SLOW_POLLING_INTERVAL;
+
+  const safe_fast_polling_interval =
+    fast_polling_interval || DEFAULT_FAST_POLLING_INTERVAL;
+
+  const ctx: BuyContext = {
+    cookie: COOKIE,
+    user_key,
+    fast_polling_interval: safe_fast_polling_interval,
+    slow_polling_interval: safe_slow_polling_interval,
+  };
+  
+  const product_ids = Array.isArray(original_prod_ids) ? original_prod_ids : [original_prod_ids];
 
   // 如果手动保证添加购物车的话，这一步可以省略
-  await try_to_add_to_cart(
-    {
-      user_key: user_key,
-      functionId: "pcCart_jc_getCurrentCart",
-      cookie: COOKIE,
-    },
-    product_id,
-    ctx
-  );
+  try {
+    await try_to_add_to_cart(
+      {
+        user_key: user_key,
+        functionId: "pcCart_jc_getCurrentCart",
+        cookie: COOKIE,
+      },
+      product_ids
+    );
+  } catch (e) {
+    logger.error(
+      "加入购物车时请求出现问题，可能cookie过期了，尝试更新cookie.."
+    );
+    return;
+  }
 
   if (target_time) {
     await wait_for_start_time({ ...target_time, logger });
   }
 
+  const length = product_ids.length;
+
+  let i = 0;
+  while (i < length) {
+    const id = product_ids[i];
+    await try_to_order(ctx, id);
+    i++;
+  }
+}
+
+async function try_to_order(ctx: BuyContext, product_id: string) {
   await try_to_select_target_product(
-    safe_fast_polling_interval,
-    safe_slow_polling_interval,
+    ctx.fast_polling_interval,
+    ctx.slow_polling_interval,
     product_id,
     ctx
   );
@@ -106,11 +132,8 @@ async function execute(configs: BuyConfig) {
     parsed = JSON.parse((res as any).parsed_body);
   } catch (e) {
     // 进入到这里应该是服务器不接受了
-    const decoder = new TextDecoder("gbk");
-    const gbk_decoded = decoder.decode((res as any).body_buffer);
-
+    // 这里会返回一个GBK编码的html页面
     logger.error("服务器出错，也许是相关参数过期了！！请尝试更新一下cookie!!!");
-
     return;
   }
 
@@ -126,21 +149,31 @@ async function execute(configs: BuyConfig) {
 
 async function try_to_add_to_cart(
   config: JDApiConfig,
-  product_id: string,
-  ctx: BuyContext
+  product_ids: string[],
 ) {
-  const is_contain = await is_cart_already_contain(config, product_id);
+  const all_ids = await get_all_cart_ids(config);
 
-  if (!is_contain) {
-    const add_to_cart = await add_to_cart_request(product_id, ctx);
+  let i = 0;
+
+  while (i < product_ids.length) {
+    const product_id = product_ids[i];
+    // const is_contain =  is_cart_already_contain(config, product_id);
+    const is_contain = all_ids.includes(product_id);
+
+    if (!is_contain) {
+      // Check for the second time to ensure the product is truely added.
+    }
+    i++;
   }
 
-  // Check for the second time to ensure the product is truely added.
-  const is_contain_ensure = await is_cart_already_contain(config, product_id);
+  const all_ids_after = await get_all_cart_ids(config);
 
-  if (!is_contain_ensure) {
-    throw new Error("添加购物车出现问题，有可能是程序漏洞！！！");
-  }
+  product_ids.forEach((id) => {
+    const is_contain_ensure = all_ids_after.includes(id);
+    if (!is_contain_ensure) {
+      throw new Error(`添加${id}购物车出现问题，有可能是程序漏洞！！！`);
+    }
+  });
 }
 
 async function try_to_select_target_product(
@@ -192,31 +225,6 @@ function is_target_add_to_order(order_res: any) {
 }
 
 main();
-
-async function refresh_cart(cookie: string) {
-  const url = "https://cart.jd.com/";
-
-  const options = {
-    headers: {
-      cookie,
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-      Connection: "keep-alive",
-      Host: "cart.jd.com",
-      Referer: "https://item.jd.com/",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "same-site",
-    },
-    method: "GET",
-  };
-
-  return send_jd_request(url, options);
-}
 
 async function get_order(ctx: BuyContext) {
   const url = "https://trade.jd.com/shopping/order/getOrderInfo.action";
@@ -337,39 +345,6 @@ async function submit_order(ctx: BuyContext) {
       origin: "https://trade.jd.com",
       pragma: "no-cache",
       referer: "https://trade.jd.com/shopping/order/getOrderInfo.action",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-site",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
-    },
-    method: "POST",
-  };
-
-  return send_jd_request(url, options);
-}
-
-/**
- * 更改配送信息
- *
- * @return {*}
- */
-async function save_pay_and_ship_new(
-  pay_ship_request_body: string,
-  ctx: BuyContext
-) {
-  const url =
-    "https://trade.jd.com/shopping/dynamic/payAndShip/savePayAndShipNew.action";
-
-  const options = {
-    body: pay_ship_request_body,
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json, text/plain, */*",
-      cookie: ctx.cookie,
-      origin: "https://cart.jd.com",
-      pragma: "no-cache",
-      referer: "https://cart.jd.com/",
       "sec-fetch-dest": "empty",
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-site",
