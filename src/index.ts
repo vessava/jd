@@ -27,6 +27,7 @@ interface BuyConfig {
     date?: number;
   };
   rush_type: RushType;
+  price_limit?: number;
 }
 
 interface BuyContext {
@@ -34,6 +35,7 @@ interface BuyContext {
   user_key: string;
   fast_polling_interval: number;
   slow_polling_interval: number;
+  price_limit?: number
 }
 
 enum RushType {
@@ -61,6 +63,7 @@ async function execute(configs: BuyConfig) {
     slow_polling_interval,
     fast_polling_interval,
     target_time,
+    price_limit
   } = configs;
 
   const safe_slow_polling_interval =
@@ -74,6 +77,7 @@ async function execute(configs: BuyConfig) {
     user_key,
     fast_polling_interval: safe_fast_polling_interval,
     slow_polling_interval: safe_slow_polling_interval,
+    price_limit
   };
 
   const product_ids = Array.isArray(original_prod_ids)
@@ -81,8 +85,9 @@ async function execute(configs: BuyConfig) {
     : [original_prod_ids];
 
   // 如果手动保证添加购物车的话，这一步可以省略
+  let added_product_ids: string[];
   try {
-    await try_to_add_to_cart(
+    added_product_ids = await try_to_add_to_cart(
       {
         user_key: user_key,
         functionId: "pcCart_jc_getCurrentCart",
@@ -93,7 +98,8 @@ async function execute(configs: BuyConfig) {
     );
   } catch (e) {
     logger.error(e.toString());
-    logger.info("继续尝试抢购成功的商品");
+    logger.info("检测到错误，请尝试更新cookie");
+    return;
   }
 
   await uncheck_all(ctx);
@@ -102,14 +108,14 @@ async function execute(configs: BuyConfig) {
     await wait_for_start_time({ ...target_time, logger });
   }
 
-  const length = product_ids.length;
+  const length = added_product_ids.length;
 
   let i = 0;
   while (i < length) {
-    const id = product_ids[i];
+    const id = added_product_ids[i];
     try {
       await try_to_order(ctx, id);
-    } catch(e) {
+    } catch (e) {
       logger.error("Catching error in function 'try_to_order'.")
       logger.error(e)
     }
@@ -178,11 +184,12 @@ async function try_to_add_to_cart(
 
   const all_ids_after = await get_all_cart_ids(config);
 
-  product_ids.forEach((id) => {
+  return product_ids.filter((id) => {
     const is_contain_ensure = all_ids_after.includes(id);
     if (!is_contain_ensure) {
-      throw new Error(`添加${id}购物车出现问题，有可能是程序漏洞！！！`);
+      logger.error(`添加${id}购物车出现问题，有可能是程序漏洞！！！`);
     }
+    return is_contain_ensure;
   });
 }
 
@@ -192,8 +199,8 @@ async function try_to_select_target_product(
   product_id: string,
   ctx: BuyContext
 ) {
-  let is_target_selected = false;
-  while (!is_target_selected) {
+  let can_go_to_next_step = false;
+  while (!can_go_to_next_step) {
     logger.info(`正在将产品${product_id}加入购物车`);
 
     const cart_res = await select_in_cart_req(product_id, ctx);
@@ -208,15 +215,22 @@ async function try_to_select_target_product(
       too_frequent = true;
     }
 
-    is_target_selected = is_target_add_to_order(body);
+    const {can_go_order, reason} = is_target_add_to_order(body, ctx.price_limit);
 
-    if (is_target_selected) {
+    can_go_to_next_step = can_go_order;
+
+    if (can_go_to_next_step) {
       logger.info(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
     } else {
-      logger.error(`产品${product_id}加入购物车失败!`);
+
+      if(reason === AddCartFailReason.PriceLimit) {
+        logger.error(`产品${product_id}的价格还不满足价格限制${ctx.price_limit}元，继续等待直到抢购价!`)
+      } else {
+        logger.error(`产品${product_id}加入购物车失败!`);
+      }
     }
 
-    if (!is_target_selected) {
+    if (!can_go_to_next_step) {
       const wait_time = too_frequent
         ? slow_polling_interval
         : fast_polling_interval;
@@ -226,12 +240,21 @@ async function try_to_select_target_product(
   }
 }
 
-function is_target_add_to_order(order_res: any) {
+enum AddCartFailReason {
+  Default,
+  PriceLimit
+}
+
+function is_target_add_to_order(order_res: any, price_limit?: number) {
   const resultData =
     order_res && order_res.resultData && order_res.resultData.cartInfo;
 
+  const real_price_lim = price_limit || Number.POSITIVE_INFINITY;
+
+  const is_over_limit = resultData.Price < real_price_lim
+
   // If the cart price is not 0 means the target is added in.
-  return resultData && resultData.Price > 0;
+  return { can_go_order: resultData && resultData.Price > 0 && is_over_limit, reason: is_over_limit ? AddCartFailReason.PriceLimit : AddCartFailReason.Default };
 }
 
 main();

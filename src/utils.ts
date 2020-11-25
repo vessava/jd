@@ -168,7 +168,7 @@ export async function send_jd_api_request(config: JDApiConfig) {
       referer: "https://cart.jd.com/",
       pragma: "no-cache",
       "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
+      "sec-fetch-mode": "no-cors",
       "sec-fetch-site": "same-site",
       "user-agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36",
