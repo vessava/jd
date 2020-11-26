@@ -207,7 +207,6 @@ async function try_to_add_to_cart(
   }
 }
 
-
 async function get_select_product_relative_info(
   ctx: BuyContext,
   product_ids: string[]
@@ -348,12 +347,11 @@ async function try_to_select_target_product(
     let too_frequent = false;
     let body;
     try {
-       body = JSON.parse(cart_res.parsed_body);
-    } catch(e) {
-      logger.error("请求太频繁了，接口返回了html")
+      body = JSON.parse(cart_res.parsed_body);
+    } catch (e) {
+      logger.error("请求太频繁了，接口返回了html");
       too_frequent = true;
     }
-
 
     const { can_go_order, fail_reason: reason } = is_target_add_to_order(
       body,
@@ -390,18 +388,21 @@ enum AddCartFailReason {
 }
 
 function is_target_add_to_order(order_res: any, price_limit?: number) {
-
-  if(!order_res) {
+  if (!order_res) {
     return {
       can_go_order: false,
       fail_reason: AddCartFailReason.Default,
-    }
+    };
   }
 
   const resultData = order_res.sortedWebCartResult;
   const real_price_lim = price_limit || Number.POSITIVE_INFINITY;
 
-  const can_go_order = !(resultData.freshTotalPrice === resultData.notFreshTotalPrice)
+  const modify_result = resultData.modifyResult;
+
+  const can_go_order = !(
+    modify_result.finalPrice === "0.00"
+  );
 
   // If the cart price is not 0 means the target is added in.
   return {
@@ -479,7 +480,7 @@ async function uncheck_all(ctx: BuyContext) {
       random: Math.random(),
       locationId: "1-2800-2851-0",
     },
-    cookie: ctx.cookie
+    cookie: ctx.cookie,
   });
 }
 
