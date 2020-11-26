@@ -12,14 +12,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^0.21.0",
-    "chalk": "^4.1.0",
     "htmlparser2": "^5.0.1",
     "js-yaml": "^3.14.0",
-    "log4js": "^6.3.0",
-    "node-fetch": "^2.6.1"
+    "node-fetch": "^2.6.1",
+    "signale": "^1.4.0"
   },
   "devDependencies": {
+    "@types/signale": "^1.4.1",
     "@types/js-yaml": "^3.12.5",
     "@types/node-fetch": "^2.5.7",
     "ts-node": "^9.0.0",

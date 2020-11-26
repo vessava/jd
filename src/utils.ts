@@ -1,12 +1,8 @@
-import { getLogger } from "log4js";
+import signale from "signale";
 import fetch, {
   Response as NodeFetchResponse,
   RequestInit as NodeFetchRequestInit,
 } from "node-fetch";
-import chalk from "chalk";
-
-var logger = getLogger();
-logger.level = "debug";
 
 /**
  * @export
@@ -126,8 +122,7 @@ export function querystring(obj: any) {
     if (typeof value === "object") {
       return encodeURIComponent(JSON.stringify(value));
     } else {
-
-      if(typeof value === "number" && value > 1e20) {
+      if (typeof value === "number" && value > 1e20) {
         return toFixed(value);
       }
       return value;
@@ -136,17 +131,17 @@ export function querystring(obj: any) {
 
   function toFixed(x: any) {
     if (Math.abs(x) < 1.0) {
-      var e = parseInt(x.toString().split('e-')[1]);
+      var e = parseInt(x.toString().split("e-")[1]);
       if (e) {
-          x *= Math.pow(10,e-1);
-          x = '0.' + (new Array(e)).join('0') + x.toString().substring(2);
+        x *= Math.pow(10, e - 1);
+        x = "0." + new Array(e).join("0") + x.toString().substring(2);
       }
     } else {
-      var e = parseInt(x.toString().split('+')[1]);
+      var e = parseInt(x.toString().split("+")[1]);
       if (e > 20) {
-          e -= 20;
-          x /= Math.pow(10,e);
-          x += (new Array(e+1)).join('0');
+        e -= 20;
+        x /= Math.pow(10, e);
+        x += new Array(e + 1).join("0");
       }
     }
     return x;
@@ -156,12 +151,12 @@ export function querystring(obj: any) {
 interface NewJDApiConfig {
   action_path: string;
   form_data: any;
-  cookie: string
+  cookie: string;
 }
 
 export function send_new_jd_api_request(config: NewJDApiConfig) {
-
-  const api = "https://cart.jd.com/" + config.action_path + "?rd" + Math.random();
+  const api =
+    "https://cart.jd.com/" + config.action_path + "?rd" + Math.random();
 
   const body = config.form_data;
 
@@ -185,7 +180,6 @@ export function send_new_jd_api_request(config: NewJDApiConfig) {
   };
 
   return send_jd_request(api, options);
-
 }
 
 export interface JDApiConfig {
@@ -238,14 +232,40 @@ export async function send_jd_api_request(config: JDApiConfig) {
 
 export class Logger {
   public info(msg: string) {
-    logger.info(chalk.blue(msg));
+    // logger.info(chalk.blue(msg));
+    signale.info(generate_time_log(msg));
   }
 
   public success(msg: string) {
-    logger.info(chalk.green(msg));
+    // logger.info(chalk.green(msg));
+    signale.success(generate_time_log(msg));
+  }
+
+  public warn(msg: string) {
+    signale.warn(generate_time_log(msg));
   }
 
   public error(msg: string) {
-    logger.info(chalk.red(msg));
+    // logger.info(chalk.red(msg));
+    signale.fatal(generate_time_log(msg));
   }
+
+  public start(msg: string) {
+    signale.start(generate_time_log(msg));
+  }
+
+  public log(msg: string) {
+    signale.log(generate_time_log(msg));
+  }
+
+  public complete(msg: string) {
+    signale.complete(generate_time_log(msg));
+  }
+}
+
+function generate_time_log(msg: string) {
+  const date = new Date();
+  const date_str = `${date.getMonth()}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
+
+  return `[${date_str}] ${msg}`;
 }

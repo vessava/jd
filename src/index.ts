@@ -99,11 +99,11 @@ async function execute(configs: BuyConfig) {
     );
   } catch (e) {
     logger.error(e.toString());
-    logger.info("检测到错误，请尝试更新cookie");
+    logger.error("检测到错误，请尝试更新cookie");
     return;
   }
 
-  const infos = await get_select_product_relative_info(ctx, product_ids);
+  const infos = await get_select_product_relative_info(ctx, added_product_ids);
 
   await uncheck_all(ctx);
 
@@ -111,11 +111,11 @@ async function execute(configs: BuyConfig) {
     await wait_for_start_time({ ...target_time, logger });
   }
 
-  const length = product_ids.length;
+  const length = added_product_ids.length;
 
   let i = 0;
   while (i < length) {
-    const id = product_ids[i];
+    const id = added_product_ids[i];
     try {
       await try_to_order(ctx, id, infos[i]);
     } catch (e) {
@@ -139,14 +139,14 @@ async function try_to_order(
     product_relative_info
   );
 
-  logger.info(`产品${product_id}正在修改配送信息`);
+  logger.start(`产品${product_id}正在修改配送信息`);
   // 请求一遍订单页面，下面注释的是修改配送方式页面，接口感觉比较慢。
   // 需要做一次这个请求，不然最后下单时候会提示配送方式不对。
   // const pay_ship_res = await save_pay_and_ship_new(PAY_SHIP_REQUEST_BODY, ctx);
   await get_order(ctx);
-  logger.info(`产品${product_id}修改配送信息完成`);
+  logger.complete(`产品"${product_id}"修改配送信息完成`);
 
-  logger.info(`产品${product_id}正在下单`);
+  logger.start(`产品"${product_id}"正在下单`);
   const res = await submit_order(ctx);
 
   let parsed: any;
@@ -162,10 +162,10 @@ async function try_to_order(
   // message为空的话意味着应该是成功了
   if (!parsed.message) {
     logger.success("恭喜🎉！！！成功了!!!");
-    logger.success(`产品${product_id}请到手机app订单处完成付款...`);
+    logger.complete(`产品"${product_id}"已经下单，请到手机app订单处完成付款...`);
   } else {
     logger.error(parsed.message);
-    logger.info("请查看上一条内容，也许下单失败了～");
+    logger.warn("请查看上一条内容，也许下单失败了～");
   }
 }
 
@@ -198,7 +198,9 @@ async function try_to_add_to_cart(
     return product_ids.filter((id) => {
       const is_contain_ensure = all_ids_after.includes(id);
       if (!is_contain_ensure) {
-        logger.error(`添加${id}购物车出现问题，有可能是程序漏洞！！！`);
+        logger.error(
+          `添加"${id}"到购物车出现问题，请重新更新cookie。如果依然存在问题，有可能是程序漏洞，请联系开发者！！！`
+        );
       }
       return is_contain_ensure;
     });
@@ -281,7 +283,7 @@ function parse_product_relative_info_from_html_str(
   parser.write(html);
 
   if (!find_target_container || !find_target_delete_btn) {
-    throw new Error(`从html获取产品${product_id}的信息失败！！！请调试代码`);
+    throw new Error(`从html获取产品"${product_id}"的信息失败！！！请调试代码`);
   }
 
   return resp!;
@@ -336,7 +338,7 @@ async function try_to_select_target_product(
 ) {
   let can_go_to_next_step = false;
   while (!can_go_to_next_step) {
-    logger.info(`正在将产品${product_id}加入购物车`);
+    logger.start(`正在将产品"${product_id}"加入购物车`);
 
     const cart_res = await select_in_cart_req(
       product_id,
@@ -361,14 +363,14 @@ async function try_to_select_target_product(
     can_go_to_next_step = can_go_order;
 
     if (can_go_to_next_step) {
-      logger.info(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
+      logger.log(`产品"${product_id}"加入购物车成功! ！！马上准备下单！！！`);
     } else {
       if (reason === AddCartFailReason.PriceLimit) {
         logger.error(
-          `产品${product_id}的价格还不满足价格限制${ctx.price_limit}元，继续等待直到抢购价!`
+          `产品"${product_id}"的价格还不满足价格限制${ctx.price_limit}元，继续等待直到抢购价!`
         );
       } else {
-        logger.error(`产品${product_id}加入购物车失败!`);
+        logger.warn(`产品"${product_id}"加入购物车失败!`);
       }
     }
 
