@@ -400,9 +400,7 @@ function is_target_add_to_order(order_res: any, price_limit?: number) {
 
   const modify_result = resultData.modifyResult;
 
-  const can_go_order = !(
-    modify_result.finalPrice === "0.00"
-  );
+  const can_go_order = modify_result.selectedCount > 0;
 
   // If the cart price is not 0 means the target is added in.
   return {
