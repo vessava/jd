@@ -35,7 +35,7 @@ interface BuyContext {
   user_key: string;
   fast_polling_interval: number;
   slow_polling_interval: number;
-  price_limit?: number
+  price_limit?: number;
 }
 
 enum RushType {
@@ -63,7 +63,7 @@ async function execute(configs: BuyConfig) {
     slow_polling_interval,
     fast_polling_interval,
     target_time,
-    price_limit
+    price_limit,
   } = configs;
 
   const safe_slow_polling_interval =
@@ -77,7 +77,7 @@ async function execute(configs: BuyConfig) {
     user_key,
     fast_polling_interval: safe_fast_polling_interval,
     slow_polling_interval: safe_slow_polling_interval,
-    price_limit
+    price_limit,
   };
 
   const product_ids = Array.isArray(original_prod_ids)
@@ -116,8 +116,8 @@ async function execute(configs: BuyConfig) {
     try {
       await try_to_order(ctx, id);
     } catch (e) {
-      logger.error("Catching error in function 'try_to_order'.")
-      logger.error(e)
+      logger.error("Catching error in function 'try_to_order'.");
+      logger.error(e);
     }
     i++;
   }
@@ -215,16 +215,20 @@ async function try_to_select_target_product(
       too_frequent = true;
     }
 
-    const {can_go_order, reason} = is_target_add_to_order(body, ctx.price_limit);
+    const { can_go_order, reason } = is_target_add_to_order(
+      body,
+      ctx.price_limit
+    );
 
     can_go_to_next_step = can_go_order;
 
     if (can_go_to_next_step) {
       logger.info(`产品${product_id}加入购物车成功! ！！马上准备下单！！！`);
     } else {
-
-      if(reason === AddCartFailReason.PriceLimit) {
-        logger.error(`产品${product_id}的价格还不满足价格限制${ctx.price_limit}元，继续等待直到抢购价!`)
+      if (reason === AddCartFailReason.PriceLimit) {
+        logger.error(
+          `产品${product_id}的价格还不满足价格限制${ctx.price_limit}元，继续等待直到抢购价!`
+        );
       } else {
         logger.error(`产品${product_id}加入购物车失败!`);
       }
@@ -242,7 +246,7 @@ async function try_to_select_target_product(
 
 enum AddCartFailReason {
   Default,
-  PriceLimit
+  PriceLimit,
 }
 
 function is_target_add_to_order(order_res: any, price_limit?: number) {
@@ -251,10 +255,22 @@ function is_target_add_to_order(order_res: any, price_limit?: number) {
 
   const real_price_lim = price_limit || Number.POSITIVE_INFINITY;
 
-  const is_over_limit = resultData.Price < real_price_lim
+  if (!resultData) {
+    return { can_go_order: false, reason: AddCartFailReason.Default };
+  }
+
+  const added = resultData.Price > 0;
+
+  const is_over_limit = resultData.Price > real_price_lim;
 
   // If the cart price is not 0 means the target is added in.
-  return { can_go_order: resultData && resultData.Price > 0 && is_over_limit, reason: is_over_limit ? AddCartFailReason.PriceLimit : AddCartFailReason.Default };
+  return {
+    can_go_order: added && !is_over_limit,
+    reason:
+      added && is_over_limit
+        ? AddCartFailReason.PriceLimit
+        : AddCartFailReason.Default,
+  };
 }
 
 main();
