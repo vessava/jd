@@ -11,6 +11,9 @@ export async function get_current_cart(config: JDApiConfig) {
 
 export async function get_all_cart_ids(config: JDApiConfig) {
   const res = await get_current_cart(config);
+  if(res.success === false) {
+    throw new Error("查询购物车信息失败，请更新cookie后再尝试")
+  }
   const vendors = res.resultData.cartInfo.vendors;
   const all_ids = extract_all_product_ids(vendors);
 
