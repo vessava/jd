@@ -1,7 +1,7 @@
 import {
   send_jd_api_request,
   JDApiConfig,
-} from "./utils";
+} from "../utils";
 
 export async function get_current_cart(config: JDApiConfig) {
   const res = await send_jd_api_request(config);
