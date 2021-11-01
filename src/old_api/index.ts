@@ -6,6 +6,7 @@ import {
   JDApiConfig,
   send_new_jd_api_request,
   Logger,
+  parse_user_key_from_cookie,
 } from "../utils";
 import { get_all_cart_ids } from "./cart";
 
@@ -15,16 +16,17 @@ const DEFAULT_SLOW_POLLING_INTERVAL = 1000;
 const DEFAULT_FAST_POLLING_INTERVAL = 400;
 const DEFAULT_ORDER_INTERVAL = 100;
 
-export async function execute(configs: BuyConfig) {
+export async function execute(configs: ComeFromConfig) {
   const {
     COOKIE,
     product_id: original_prod_ids,
-    user_key,
     slow_polling_interval,
     fast_polling_interval,
     target_time,
     price_limit,
   } = configs;
+
+  const user_key = parse_user_key_from_cookie(COOKIE) || "";
 
   const safe_slow_polling_interval =
     slow_polling_interval || DEFAULT_SLOW_POLLING_INTERVAL;

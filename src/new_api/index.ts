@@ -1,3 +1,5 @@
+/// <reference path="../../types/interface.d.ts" />
+
 import {
   sleep,
   send_jd_request,
@@ -5,8 +7,10 @@ import {
   JDApiConfig,
   send_jd_api_request,
   Logger,
+  parse_user_key_from_cookie,
 } from "../utils";
 import { get_all_cart_ids } from "./cart";
+import { find_target_item_in_vendors } from "./utils";
 
 const logger = new Logger();
 
@@ -14,15 +18,16 @@ const DEFAULT_SLOW_POLLING_INTERVAL = 100;
 const DEFAULT_FAST_POLLING_INTERVAL = 50;
 const DEFAULT_ORDER_INTERVAL = 100;
 
-export async function execute(configs: BuyConfig) {
+export async function execute(configs: ComeFromConfig) {
   const {
     COOKIE,
     product_id: original_prod_ids,
-    user_key,
     slow_polling_interval,
     fast_polling_interval,
     target_time,
   } = configs;
+
+  const user_key = parse_user_key_from_cookie(COOKIE) || "";
 
   const safe_slow_polling_interval =
     slow_polling_interval || DEFAULT_SLOW_POLLING_INTERVAL;
@@ -42,8 +47,10 @@ export async function execute(configs: BuyConfig) {
     : [original_prod_ids];
 
   // 如果手动保证添加购物车的话，这一步可以省略
+
+  let vendors: Vendor[];
   try {
-    await try_to_add_to_cart(
+    vendors = await try_to_add_to_cart(
       {
         user_key: user_key,
         functionId: "pcCart_jc_getCurrentCart",
@@ -54,7 +61,8 @@ export async function execute(configs: BuyConfig) {
     );
   } catch (e: any) {
     logger.error(e.toString());
-    logger.info("继续尝试抢购成功的商品");
+    // logger.info("继续尝试抢购成功的商品");
+    throw new Error("添加商品请求错误，将停止进程🤚");
   }
 
   await uncheck_all(ctx);
@@ -69,20 +77,26 @@ export async function execute(configs: BuyConfig) {
   while (i < length) {
     const id = product_ids[i];
     try {
-      await try_to_order(ctx, id);
-    } catch(e: any) {
-      logger.error("Catching error in function 'try_to_order'.")
-      logger.error(e)
+      await try_to_order(ctx, id, vendors);
+    } catch (e: any) {
+      logger.error("Catching error in function 'try_to_order'.");
+      logger.error(e);
+      throw new Error(e);
     }
     i++;
   }
 }
 
-async function try_to_order(ctx: BuyContext, product_id: string) {
+async function try_to_order(
+  ctx: BuyContext,
+  product_id: string,
+  vendors: Vendor[]
+) {
   await try_to_select_target_product(
     ctx.fast_polling_interval,
     ctx.slow_polling_interval,
     product_id,
+    vendors,
     ctx
   );
 
@@ -121,7 +135,7 @@ async function try_to_add_to_cart(
   product_ids: string[],
   ctx: BuyContext
 ) {
-  const all_ids = await get_all_cart_ids(config);
+  const [all_ids] = await get_all_cart_ids(config);
 
   let i = 0;
 
@@ -137,7 +151,7 @@ async function try_to_add_to_cart(
     i++;
   }
 
-  const all_ids_after = await get_all_cart_ids(config);
+  const [all_ids_after, vendors] = await get_all_cart_ids(config);
 
   product_ids.forEach((id) => {
     const is_contain_ensure = all_ids_after.includes(id);
@@ -145,19 +159,30 @@ async function try_to_add_to_cart(
       throw new Error(`添加${id}购物车出现问题，有可能是程序漏洞！！！`);
     }
   });
+
+  return vendors;
 }
 
 async function try_to_select_target_product(
   fast_polling_interval: number,
   slow_polling_interval: number,
   product_id: string,
+  vendors: Vendor[],
   ctx: BuyContext
 ) {
   let is_target_selected = false;
   while (!is_target_selected) {
     logger.info(`正在将产品${product_id}加入购物车`);
 
-    const cart_res = await select_in_cart_req(product_id, ctx);
+    const item = find_target_item_in_vendors(vendors, product_id);
+    const sku_uuid = item ? item.skuUuid : null;
+    if (!sku_uuid) {
+      throw new Error(
+        `Logic Error: 在购物车中没有找到物品"${product_id}"的item`
+      );
+    }
+
+    const cart_res = await select_in_cart_req(product_id, ctx, sku_uuid);
     const body = JSON.parse(cart_res.parsed_body);
 
     let too_frequent = false;
@@ -271,7 +296,7 @@ async function uncheck_all(ctx: BuyContext) {
 async function select_in_cart_req(
   product_id: string,
   ctx: BuyContext,
-  skuUuid?: string
+  skuUuid: string
 ) {
   const extend = {
     operations: [
@@ -280,7 +305,7 @@ async function select_in_cart_req(
           {
             Id: product_id,
             num: 1,
-            skuUuid: skuUuid || "10180236205873752893575950336",
+            skuUuid: skuUuid,
             useUuid: false,
           },
         ],
@@ -305,8 +330,7 @@ async function submit_order(ctx: BuyContext) {
   const url = "https://trade.jd.com/shopping/order/submitOrder.action?";
 
   const options = {
-    body:
-      "overseaPurchaseCookies=&vendorRemarks=[]&submitOrderParam.sopNotPutInvoice=false&submitOrderParam.trackID=TestTrackId&submitOrderParam.ignorePriceChange=0&submitOrderParam.btSupport=0&submitOrderParam.eid=MDG5CG427ZU3OOGNXTUFFKEWLOPVR5Q4STCCZLYYZROQAAESGB7IWMRBGXRYDN6YHHWMY7NPIHS5TQ662YD7U4CNEA&submitOrderParam.fp=1209df5109a95a1bb2b83841e31fb7e0&submitOrderParam.jxj=1",
+    body: "overseaPurchaseCookies=&vendorRemarks=[]&submitOrderParam.sopNotPutInvoice=false&submitOrderParam.trackID=TestTrackId&submitOrderParam.ignorePriceChange=0&submitOrderParam.btSupport=0&submitOrderParam.eid=MDG5CG427ZU3OOGNXTUFFKEWLOPVR5Q4STCCZLYYZROQAAESGB7IWMRBGXRYDN6YHHWMY7NPIHS5TQ662YD7U4CNEA&submitOrderParam.fp=1209df5109a95a1bb2b83841e31fb7e0&submitOrderParam.jxj=1",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       accept: "application/json, text/plain, */*",

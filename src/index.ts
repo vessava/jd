@@ -21,7 +21,7 @@ const type: ApiType = ApiType.New;
 
 const configs = yaml.safeLoad(
   fs.readFileSync(config_path).toString()
-) as BuyConfig;
+) as ComeFromConfig;
 
 async function main() {
   switch (type) {

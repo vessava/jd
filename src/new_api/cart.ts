@@ -9,13 +9,13 @@ export async function get_current_cart(config: JDApiConfig) {
   return cart_info;
 }
 
-export async function get_all_cart_ids(config: JDApiConfig) {
-  const res = await get_current_cart(config);
-  const vendors = res.resultData.cartInfo.vendors;
+export async function get_all_cart_ids(config: JDApiConfig): Promise<[string[], Vendor[]]> {
+  const cart_info = await get_current_cart(config);
+  const vendors = cart_info.resultData.cartInfo.vendors;
   const all_ids = extract_all_product_ids(vendors);
 
   const all_ids_string = all_ids.map((id) => id.toString());
-  return all_ids_string;
+  return [all_ids_string, vendors];
 
   function extract_all_product_ids(vendors: any[]) {
     const arr: string[] = [];

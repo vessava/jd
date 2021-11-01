@@ -204,24 +204,7 @@ export async function send_jd_api_request(config: JDApiConfig) {
   const body = {
     functionId: config.functionId,
     appid: "JDC_mall_cart",
-    body: {
-      operations: [
-        {
-          TheSkus: [
-            {
-              Id: "100009216176",
-              num: 1,
-              skuUuid: "F1ZA4x1012023809578815488",
-              useUuid: false,
-            },
-          ],
-        },
-      ],
-      serInfo: {
-        area: "1_72_55653_0",
-        "user-key": "ecbddc0e-ab54-4d26-9dce-30ab263c99be",
-      },
-    },
+    body: data,
   };
 
   const options = {
@@ -283,4 +266,37 @@ function generate_time_log(msg: string) {
   const date_str = `${date.getMonth()}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
 
   return `[${date_str}] ${msg}`;
+}
+
+/**
+ *
+ *
+ * @param {string} cookie
+ * @return {*}
+ */
+export function parse_cookie(cookie: string) {
+  const obj: Record<string, string | undefined> = {};
+  cookie
+    .split(";")
+    .filter((str) => str.trim() !== "")
+    .forEach((str) => {
+      const split = str.split("=");
+
+      const key = split[0].trim();
+      const val = split[1].trim();
+      obj[key] = val;
+    });
+
+  return obj;
+}
+/**
+ *
+ *
+ * @export
+ * @param {string} cookie
+ * @return {*}  {string}
+ */
+export function parse_user_key_from_cookie(cookie: string) {
+  const map = parse_cookie(cookie);
+  return map["user-key"];
 }
