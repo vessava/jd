@@ -76,7 +76,6 @@ export async function wait_for_start_time(config: WaitConfig): Promise<void> {
   if (config.target_date) {
     date.setDate(config.target_date);
   }
-
   if (config.minute) {
     date.setMinutes(config.minute);
   } else {
@@ -205,8 +204,24 @@ export async function send_jd_api_request(config: JDApiConfig) {
   const body = {
     functionId: config.functionId,
     appid: "JDC_mall_cart",
-    loginType: 3,
-    body: data,
+    body: {
+      operations: [
+        {
+          TheSkus: [
+            {
+              Id: "100009216176",
+              num: 1,
+              skuUuid: "F1ZA4x1012023809578815488",
+              useUuid: false,
+            },
+          ],
+        },
+      ],
+      serInfo: {
+        area: "1_72_55653_0",
+        "user-key": "ecbddc0e-ab54-4d26-9dce-30ab263c99be",
+      },
+    },
   };
 
   const options = {

@@ -56,7 +56,7 @@ export async function execute(configs: BuyConfig) {
       product_ids,
       ctx
     );
-  } catch (e) {
+  } catch (e: any) {
     logger.error(e.toString());
     logger.error("检测到错误，请尝试更新cookie");
     return;
@@ -77,7 +77,7 @@ export async function execute(configs: BuyConfig) {
     const id = added_product_ids[i];
     try {
       await try_to_order(ctx, id, infos[i]);
-    } catch (e) {
+    } catch (e: any) {
       logger.error("Catching error in function 'try_to_order'.");
       logger.error(e);
     }
@@ -395,7 +395,7 @@ async function get_order(ctx: BuyContext) {
   try {
     const res = await send_jd_request(url, options);
     return res;
-  } catch (e) {
+  } catch (e: any) {
     logger.error(e);
   }
 }

@@ -5,7 +5,7 @@
   "main": "lib/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node src/index.ts",
+    "dev": "ts-node --dir . src/index.ts",
     "build": "tsc",
     "start": "node lib/index.js"
   },

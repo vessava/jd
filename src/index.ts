@@ -1,12 +1,14 @@
+/// <reference path="../types/interface.d.ts" />
+
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 
 // The "functionId" category api
-import { execute as execute_new } from "./old_api";
+import { execute as execute_old } from "./old_api";
 
 // The parse html category api
-import { execute as execute_old } from "./new_api";
+import { execute as execute_new } from "./new_api";
 
 const config_path = path.join(__dirname, "../config.yaml");
 

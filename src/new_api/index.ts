@@ -52,7 +52,7 @@ export async function execute(configs: BuyConfig) {
       product_ids,
       ctx
     );
-  } catch (e) {
+  } catch (e: any) {
     logger.error(e.toString());
     logger.info("继续尝试抢购成功的商品");
   }
@@ -70,7 +70,7 @@ export async function execute(configs: BuyConfig) {
     const id = product_ids[i];
     try {
       await try_to_order(ctx, id);
-    } catch(e) {
+    } catch(e: any) {
       logger.error("Catching error in function 'try_to_order'.")
       logger.error(e)
     }
@@ -220,7 +220,7 @@ async function get_order(ctx: BuyContext) {
   try {
     const res = await send_jd_request(url, options);
     return res;
-  } catch (e) {
+  } catch (e: any) {
     logger.error(e);
   }
 }
